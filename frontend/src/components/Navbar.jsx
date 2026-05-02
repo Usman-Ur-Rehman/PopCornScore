@@ -1,20 +1,67 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import api from '../utils/api';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const searchRef = useRef(null);
+
+  // Fetch suggestions as user types
+  useEffect(() => {
+    if (search.trim().length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      try {
+        const { data } = await api.get('/titles', {
+          params: { search: search.trim(), limit: 5 }
+        });
+        setSuggestions(data.titles || []);
+        setShowSuggestions(true);
+      } catch (err) {
+        console.error('Search suggestions error:', err);
+        setSuggestions([]);
+      }
+    };
+
+    const timer = setTimeout(fetchSuggestions, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
     if (search.trim()) {
       navigate(`/browse?search=${encodeURIComponent(search.trim())}`);
       setSearch('');
+      setShowSuggestions(false);
     }
+  };
+
+  const handleSuggestionClick = (title) => {
+    navigate(`/title/${title.title_id}`);
+    setSearch('');
+    setShowSuggestions(false);
   };
 
   const handleLogout = () => {
@@ -61,11 +108,12 @@ export default function Navbar() {
 
           {/* Search */}
           <form onSubmit={handleSearch} className="hidden md:flex items-center">
-            <div className="relative">
+            <div className="relative" ref={searchRef}>
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onFocus={() => search.trim().length >= 2 && setShowSuggestions(true)}
                 placeholder="Search titles, actors..."
                 className="input-field text-sm py-2 pl-4 pr-10 w-64"
               />
@@ -74,6 +122,33 @@ export default function Navbar() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
+
+              {/* Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-ps-card border border-ps-border rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                  {suggestions.map((title) => (
+                    <button
+                      key={title.title_id}
+                      type="button"
+                      onClick={() => handleSuggestionClick(title)}
+                      className="w-full text-left px-4 py-3 hover:bg-ps-elevated transition-colors border-b border-ps-border/50 last:border-b-0 flex items-center gap-3"
+                    >
+                      {title.poster_url && (
+                        <img
+                          src={title.poster_url}
+                          alt={title.title}
+                          className="w-8 h-12 object-cover rounded"
+                          onError={(e) => (e.target.style.display = 'none')}
+                        />
+                      )}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-white">{title.title}</p>
+                        <p className="text-xs text-ps-muted">{title.type} • {title.release_date?.slice(0, 4)}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </form>
 

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 export default function Login() {
   const { login } = useAuth();
+  const { addToast } = useToast();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
@@ -16,10 +18,13 @@ export default function Login() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', form);
+      addToast('Login successful!', 'success');
       login(data.token, data.user);
-      navigate('/');
+      setTimeout(() => navigate('/'), 500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      const errorMsg = err.response?.data?.message || 'Login failed. Please try again.';
+      setError(errorMsg);
+      addToast(errorMsg, 'error');
     } finally {
       setLoading(false);
     }

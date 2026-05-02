@@ -49,3 +49,9 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Page Transition */
+.page-transition {
+  width: 100%;
+}
+

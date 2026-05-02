@@ -2,7 +2,7 @@
 
 A full-stack web platform to discover, rate, and review movies and TV shows.
 
-**CL219 Database Systems Lab · Spring 2026 · FAST-NU Lahore**  
+**CL2005 Database Systems Lab · Spring 2026 · FAST-NU Lahore**  
 Group: Danish Shayan · Usman Ur Rehman · Zeeshan Ahmed · Mustafa Abid
 
 ---

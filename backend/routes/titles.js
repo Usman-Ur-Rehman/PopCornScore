@@ -91,12 +91,18 @@ router.get('/', async (req, res) => {
   else if (sort === 'popular') orderClause = 't.review_count DESC, t.avg_rating DESC';
 
   const filterWhere = `
-    WHERE LOWER(t.title) LIKE @search
-      AND (LEN(@type) = 0 OR t.type = @type)
-      AND (LEN(@genre) = 0 OR EXISTS (
-        SELECT 1 FROM Title_Genres tg JOIN Genres g ON tg.genre_id = g.genre_id
-        WHERE tg.title_id = t.title_id AND g.genre_name = @genre
-      ))
+    WHERE (
+      LOWER(t.title) LIKE @search
+      OR EXISTS (
+        SELECT 1 FROM MTS_CAST mc JOIN People p ON mc.people_id = p.people_id
+        WHERE mc.title_id = t.title_id AND LOWER(p.name) LIKE @search
+      )
+    )
+    AND (LEN(@type) = 0 OR t.type = @type)
+    AND (LEN(@genre) = 0 OR EXISTS (
+      SELECT 1 FROM Title_Genres tg JOIN Genres g ON tg.genre_id = g.genre_id
+      WHERE tg.title_id = t.title_id AND g.genre_name = @genre
+    ))
   `;
 
   try {

@@ -8,7 +8,8 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
+  const [titleSuggestions, setTitleSuggestions] = useState([]);
+  const [peopleSuggestions, setPeopleSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const searchRef = useRef(null);
@@ -16,21 +17,25 @@ export default function Navbar() {
   // Fetch suggestions as user types
   useEffect(() => {
     if (search.trim().length < 2) {
-      setSuggestions([]);
+      setTitleSuggestions([]);
+      setPeopleSuggestions([]);
       setShowSuggestions(false);
       return;
     }
 
     const fetchSuggestions = async () => {
       try {
-        const { data } = await api.get('/titles', {
-          params: { search: search.trim(), limit: 5 }
-        });
-        setSuggestions(data.titles || []);
+        const [titlesRes, peopleRes] = await Promise.all([
+          api.get('/titles', { params: { search: search.trim(), limit: 5 } }),
+          api.get('/people/search', { params: { q: search.trim() } }),
+        ]);
+        setTitleSuggestions(titlesRes.data.titles || []);
+        setPeopleSuggestions(peopleRes.data || []);
         setShowSuggestions(true);
       } catch (err) {
         console.error('Search suggestions error:', err);
-        setSuggestions([]);
+        setTitleSuggestions([]);
+        setPeopleSuggestions([]);
       }
     };
 
@@ -113,7 +118,7 @@ export default function Navbar() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onFocus={() => search.trim().length >= 2 && setShowSuggestions(true)}
+                onFocus={() => search.trim().length >= 2 && (titleSuggestions.length > 0 || peopleSuggestions.length > 0) && setShowSuggestions(true)}
                 placeholder="Search titles, actors..."
                 className="input-field text-sm py-2 pl-4 pr-10 w-64"
               />
@@ -124,29 +129,59 @@ export default function Navbar() {
               </button>
 
               {/* Suggestions Dropdown */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-ps-card border border-ps-border rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
-                  {suggestions.map((title) => (
-                    <button
-                      key={title.title_id}
-                      type="button"
-                      onClick={() => handleSuggestionClick(title)}
-                      className="w-full text-left px-4 py-3 hover:bg-ps-elevated transition-colors border-b border-ps-border/50 last:border-b-0 flex items-center gap-3"
-                    >
-                      {title.poster_url && (
-                        <img
-                          src={title.poster_url}
-                          alt={title.title}
-                          className="w-8 h-12 object-cover rounded"
-                          onError={(e) => (e.target.style.display = 'none')}
-                        />
-                      )}
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-white">{title.title}</p>
-                        <p className="text-xs text-ps-muted">{title.type} • {title.release_date?.slice(0, 4)}</p>
-                      </div>
-                    </button>
-                  ))}
+              {showSuggestions && (titleSuggestions.length > 0 || peopleSuggestions.length > 0) && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-ps-card border border-ps-border rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+
+                  {/* People results */}
+                  {peopleSuggestions.length > 0 && (
+                    <>
+                      <p className="px-4 pt-3 pb-1 text-xs font-semibold text-ps-muted uppercase tracking-wider">Actors & Directors</p>
+                      {peopleSuggestions.map((person) => (
+                        <button
+                          key={person.people_id}
+                          type="button"
+                          onClick={() => { navigate(`/person/${person.people_id}`); setSearch(''); setShowSuggestions(false); }}
+                          className="w-full text-left px-4 py-2.5 hover:bg-ps-elevated transition-colors flex items-center gap-3"
+                        >
+                          <img
+                            src={person.picture_url}
+                            alt={person.name}
+                            className="w-8 h-8 object-cover rounded-full"
+                            onError={(e) => (e.target.style.display = 'none')}
+                          />
+                          <p className="text-sm font-medium text-white">{person.name}</p>
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Title results */}
+                  {titleSuggestions.length > 0 && (
+                    <>
+                      <p className="px-4 pt-3 pb-1 text-xs font-semibold text-ps-muted uppercase tracking-wider">Titles</p>
+                      {titleSuggestions.map((title) => (
+                        <button
+                          key={title.title_id}
+                          type="button"
+                          onClick={() => handleSuggestionClick(title)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-ps-elevated transition-colors border-b border-ps-border/50 last:border-b-0 flex items-center gap-3"
+                        >
+                          {title.poster_url && (
+                            <img
+                              src={title.poster_url}
+                              alt={title.title}
+                              className="w-8 h-12 object-cover rounded"
+                              onError={(e) => (e.target.style.display = 'none')}
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-white">{title.title}</p>
+                            <p className="text-xs text-ps-muted">{title.type} • {title.release_date?.slice(0, 4)}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>

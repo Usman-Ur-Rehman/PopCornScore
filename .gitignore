@@ -39,6 +39,7 @@ coverage/
 
 # Misc
 .DS_Store
+.claude/
 .vscode-test
 .pnpm-store
 .yarn/*

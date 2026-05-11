@@ -20,12 +20,10 @@ router.get('/:id', async (req, res) => {
       .query(`
         SELECT t.title_id, t.title, t.type, t.poster_url, t.release_date,
                mc.role, mc.character_name,
-               COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating
+               t.avg_rating
         FROM MTS_CAST mc
         JOIN Titles t ON mc.title_id = t.title_id
-        LEFT JOIN Reviews r ON t.title_id = r.title_id
         WHERE mc.people_id = @personId
-        GROUP BY t.title_id, t.title, t.type, t.poster_url, t.release_date, mc.role, mc.character_name
         ORDER BY t.release_date DESC
       `);
 

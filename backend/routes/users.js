@@ -19,10 +19,9 @@ router.get('/profile', authMiddleware, async (req, res) => {
     const statsResult = await pool.request()
       .input('userId', sql.Int, userId)
       .query(`
-        SELECT
-          (SELECT COUNT(*) FROM Reviews WHERE user_id = @userId) AS total_ratings,
-          (SELECT COUNT(*) FROM Wishlist WHERE user_id = @userId) AS wishlist_count,
-          (SELECT COALESCE(AVG(CAST(rating AS FLOAT)), 0) FROM Reviews WHERE user_id = @userId) AS avg_given_rating
+        SELECT total_ratings, wishlist_count, avg_given_rating
+        FROM vw_UserStats
+        WHERE user_id = @userId
       `);
 
     res.json({

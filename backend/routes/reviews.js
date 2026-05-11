@@ -63,7 +63,9 @@ router.get('/check/:titleId', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/reviews  (auth) - create or update review
+// POST /api/reviews  (auth) - create or update review via sp_UpsertReview
+// The SP handles the upsert; trg_Reviews_UpdateTitleStats updates Titles.avg_rating
+// and trg_Reviews_CleanWishlist removes the title from the user's wishlist automatically.
 router.post('/', authMiddleware, async (req, res) => {
   const { title_id, rating, comment } = req.body;
   const userId = req.user.user_id;
@@ -75,30 +77,17 @@ router.post('/', authMiddleware, async (req, res) => {
 
   try {
     await poolConnect;
-    const existing = await pool.request()
-      .input('userId', sql.Int, userId)
-      .input('titleId', sql.Int, title_id)
-      .query('SELECT review_id FROM Reviews WHERE user_id = @userId AND title_id = @titleId');
-
-    if (existing.recordset.length > 0) {
-      await pool.request()
-        .input('rating', sql.Int, rating)
-        .input('comment', sql.Text, comment || null)
-        .input('userId', sql.Int, userId)
-        .input('titleId', sql.Int, title_id)
-        .query('UPDATE Reviews SET rating = @rating, comment = @comment, review_date = GETDATE() WHERE user_id = @userId AND title_id = @titleId');
-      return res.json({ message: 'Review updated.' });
-    }
-
     await pool.request()
-      .input('rating', sql.Int, rating)
-      .input('comment', sql.Text, comment || null)
-      .input('userId', sql.Int, userId)
-      .input('titleId', sql.Int, title_id)
-      .query('INSERT INTO Reviews (rating, comment, user_id, title_id) VALUES (@rating, @comment, @userId, @titleId)');
-    res.status(201).json({ message: 'Review created.' });
+      .input('user_id',  sql.Int,  userId)
+      .input('title_id', sql.Int,  title_id)
+      .input('rating',   sql.Int,  rating)
+      .input('comment',  sql.Text, comment || null)
+      .execute('sp_UpsertReview');
+    res.status(200).json({ message: 'Review saved.' });
   } catch (err) {
     console.error(err);
+    if (err.message && err.message.includes('Rating must be'))
+      return res.status(400).json({ message: err.message });
     res.status(500).json({ message: 'Server error.' });
   }
 });

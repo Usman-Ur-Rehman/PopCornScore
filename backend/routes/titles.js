@@ -3,22 +3,24 @@ const router = express.Router();
 const { sql, pool, poolConnect } = require('../config/db');
 const authMiddleware = require('../middleware/auth');
 
-const SELECT_COLS = `t.title_id, t.title, t.type, t.release_date, t.poster_url, t.cover_url, t.trailer_url, CAST(t.summary AS NVARCHAR(MAX)) AS summary`;
-const GROUP_COLS = `t.title_id, t.title, t.type, t.release_date, t.poster_url, t.cover_url, t.trailer_url, CAST(t.summary AS NVARCHAR(MAX))`;
+// Titles now has cached avg_rating and review_count columns maintained by
+// trg_Reviews_UpdateTitleStats, so no GROUP BY aggregation needed.
+const SELECT_BASE = `
+  t.title_id, t.title, t.type, t.release_date,
+  t.poster_url, t.cover_url, t.trailer_url,
+  CAST(t.summary AS NVARCHAR(MAX)) AS summary,
+  t.avg_rating, t.review_count
+`;
 
 // GET /api/titles/trending
 router.get('/trending', async (req, res) => {
   try {
     await poolConnect;
     const result = await pool.request().query(`
-      SELECT TOP 20 ${SELECT_COLS},
-        COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating,
-        COUNT(r.review_id) AS review_count
+      SELECT TOP 20 ${SELECT_BASE}
       FROM Titles t
-      LEFT JOIN Reviews r ON t.title_id = r.title_id
-        AND r.review_date >= DATEADD(day, -60, GETDATE())
-      GROUP BY ${GROUP_COLS}
-      ORDER BY review_count DESC, avg_rating DESC
+      WHERE t.review_count > 0
+      ORDER BY t.review_count DESC, t.avg_rating DESC
     `);
     res.json(result.recordset);
   } catch (err) {
@@ -32,14 +34,10 @@ router.get('/top-rated', async (req, res) => {
   try {
     await poolConnect;
     const result = await pool.request().query(`
-      SELECT TOP 20 ${SELECT_COLS},
-        COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating,
-        COUNT(r.review_id) AS review_count
+      SELECT TOP 20 ${SELECT_BASE}
       FROM Titles t
-      LEFT JOIN Reviews r ON t.title_id = r.title_id
-      GROUP BY ${GROUP_COLS}
-      HAVING COUNT(r.review_id) >= 1
-      ORDER BY avg_rating DESC, review_count DESC
+      WHERE t.review_count >= 1
+      ORDER BY t.avg_rating DESC, t.review_count DESC
     `);
     res.json(result.recordset);
   } catch (err) {
@@ -56,11 +54,8 @@ router.get('/recommendations', authMiddleware, async (req, res) => {
     const result = await pool.request()
       .input('userId', sql.Int, userId)
       .query(`
-        SELECT TOP 12 ${SELECT_COLS},
-          COALESCE(AVG(CAST(r2.rating AS FLOAT)), 0) AS avg_rating,
-          COUNT(r2.review_id) AS review_count
+        SELECT TOP 12 ${SELECT_BASE}
         FROM Titles t
-        LEFT JOIN Reviews r2 ON t.title_id = r2.title_id
         WHERE t.title_id IN (
           SELECT tg2.title_id
           FROM Title_Genres tg2
@@ -74,8 +69,7 @@ router.get('/recommendations', authMiddleware, async (req, res) => {
             SELECT title_id FROM Reviews WHERE user_id = @userId
           )
         )
-        GROUP BY ${GROUP_COLS}
-        ORDER BY avg_rating DESC
+        ORDER BY t.avg_rating DESC
       `);
     res.json(result.recordset);
   } catch (err) {
@@ -89,57 +83,44 @@ router.get('/', async (req, res) => {
   const { search = '', type = '', genre = '', sort = 'rating', page = 1 } = req.query;
   const limit = 24;
   const offset = (parseInt(page) - 1) * limit;
-
-  // FIX #2 & #3: lowercase the pattern so LOWER(t.title) LIKE @search works
   const searchPattern = search ? `%${search.toLowerCase()}%` : '%';
 
-  let orderClause = 'avg_rating DESC, review_count DESC';
+  let orderClause = 't.avg_rating DESC, t.review_count DESC';
   if (sort === 'newest') orderClause = 't.release_date DESC';
   else if (sort === 'oldest') orderClause = 't.release_date ASC';
-  else if (sort === 'popular') orderClause = 'review_count DESC, avg_rating DESC';
+  else if (sort === 'popular') orderClause = 't.review_count DESC, t.avg_rating DESC';
+
+  const filterWhere = `
+    WHERE LOWER(t.title) LIKE @search
+      AND (LEN(@type) = 0 OR t.type = @type)
+      AND (LEN(@genre) = 0 OR EXISTS (
+        SELECT 1 FROM Title_Genres tg JOIN Genres g ON tg.genre_id = g.genre_id
+        WHERE tg.title_id = t.title_id AND g.genre_name = @genre
+      ))
+  `;
 
   try {
     await poolConnect;
 
-    const countReq = pool.request()
-      .input('search', sql.NVarChar, searchPattern)   // FIX #1: NVarChar not VarChar
-      .input('type',   sql.NVarChar, type || '')
-      .input('genre',  sql.NVarChar, genre || '');
+    const countResult = await pool.request()
+      .input('search', sql.NVarChar, searchPattern)
+      .input('type', sql.NVarChar, type || '')
+      .input('genre', sql.NVarChar, genre || '')
+      .query(`SELECT COUNT(*) AS total FROM Titles t ${filterWhere}`);
 
-    const countResult = await countReq.query(`
-      SELECT COUNT(DISTINCT t.title_id) AS total
-      FROM Titles t
-      WHERE LOWER(t.title) LIKE @search              -- FIX #2: LOWER() on both sides
-        AND (LEN(@type) = 0 OR t.type = @type)
-        AND (LEN(@genre) = 0 OR EXISTS (
-          SELECT 1 FROM Title_Genres tg JOIN Genres g ON tg.genre_id = g.genre_id
-          WHERE tg.title_id = t.title_id AND g.genre_name = @genre
-        ))
-    `);
-
-    const dataReq = pool.request()
-      .input('search', sql.NVarChar, searchPattern)   // FIX #1
-      .input('type',   sql.NVarChar, type || '')
-      .input('genre',  sql.NVarChar, genre || '')
+    const dataResult = await pool.request()
+      .input('search', sql.NVarChar, searchPattern)
+      .input('type', sql.NVarChar, type || '')
+      .input('genre', sql.NVarChar, genre || '')
       .input('offset', sql.Int, offset)
-      .input('limit',  sql.Int, limit);
-
-    const dataResult = await dataReq.query(`
-      SELECT ${SELECT_COLS},
-        COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating,
-        COUNT(r.review_id) AS review_count
-      FROM Titles t
-      LEFT JOIN Reviews r ON t.title_id = r.title_id
-      WHERE LOWER(t.title) LIKE @search              -- FIX #2
-        AND (LEN(@type) = 0 OR t.type = @type)
-        AND (LEN(@genre) = 0 OR EXISTS (
-          SELECT 1 FROM Title_Genres tg JOIN Genres g ON tg.genre_id = g.genre_id
-          WHERE tg.title_id = t.title_id AND g.genre_name = @genre
-        ))
-      GROUP BY ${GROUP_COLS}
-      ORDER BY ${orderClause}
-      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-    `);
+      .input('limit', sql.Int, limit)
+      .query(`
+        SELECT ${SELECT_BASE}
+        FROM Titles t
+        ${filterWhere}
+        ORDER BY ${orderClause}
+        OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+      `);
 
     res.json({
       titles: dataResult.recordset,
@@ -163,15 +144,7 @@ router.get('/:id', async (req, res) => {
 
     const titleResult = await pool.request()
       .input('titleId', sql.Int, titleId)
-      .query(`
-        SELECT ${SELECT_COLS},
-          COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating,
-          COUNT(r.review_id) AS review_count
-        FROM Titles t
-        LEFT JOIN Reviews r ON t.title_id = r.title_id
-        WHERE t.title_id = @titleId
-        GROUP BY ${GROUP_COLS}
-      `);
+      .query(`SELECT ${SELECT_BASE} FROM Titles t WHERE t.title_id = @titleId`);
 
     if (titleResult.recordset.length === 0)
       return res.status(404).json({ message: 'Title not found.' });
@@ -197,11 +170,8 @@ router.get('/:id', async (req, res) => {
     const similarResult = await pool.request()
       .input('titleId', sql.Int, titleId)
       .query(`
-        SELECT TOP 8 ${SELECT_COLS},
-          COALESCE(AVG(CAST(r.rating AS FLOAT)), 0) AS avg_rating,
-          COUNT(r.review_id) AS review_count
+        SELECT TOP 8 ${SELECT_BASE}
         FROM Titles t
-        LEFT JOIN Reviews r ON t.title_id = r.title_id
         WHERE t.title_id != @titleId
           AND t.title_id IN (
             SELECT tg2.title_id FROM Title_Genres tg2
@@ -209,14 +179,13 @@ router.get('/:id', async (req, res) => {
               SELECT genre_id FROM Title_Genres WHERE title_id = @titleId
             )
           )
-        GROUP BY ${GROUP_COLS}
-        ORDER BY avg_rating DESC
+        ORDER BY t.avg_rating DESC
       `);
 
     res.json({
       ...titleResult.recordset[0],
       genres: genresResult.recordset,
-      cast: castResult.recordset,
+      cast:   castResult.recordset,
       similar: similarResult.recordset,
     });
   } catch (err) {

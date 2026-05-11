@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { sql, pool, poolConnect } = require('../config/db');
 
-// POST /api/auth/register
+// POST /api/auth/register  — uses sp_RegisterUser (checks uniqueness, then INSERTs)
 router.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password)
@@ -12,26 +12,21 @@ router.post('/register', async (req, res) => {
 
   try {
     await poolConnect;
-    const existing = await pool.request()
-      .input('email', sql.VarChar, email)
-      .input('username', sql.VarChar, username)
-      .query('SELECT user_id FROM Users WHERE email = @email OR username = @username');
-
-    if (existing.recordset.length > 0)
-      return res.status(409).json({ message: 'Email or username already taken.' });
-
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.request()
-      .input('username', sql.VarChar, username)
-      .input('email', sql.VarChar, email)
-      .input('pass_hash', sql.VarChar, hash)
-      .query('INSERT INTO Users (username, email, pass_hash) OUTPUT INSERTED.user_id, INSERTED.username, INSERTED.email VALUES (@username, @email, @pass_hash)');
+      .input('username',    sql.VarChar, username)
+      .input('email',       sql.VarChar, email)
+      .input('pass_hash',   sql.VarChar, hash)
+      .output('new_user_id', sql.Int)
+      .execute('sp_RegisterUser');
 
-    const user = result.recordset[0];
-    const token = jwt.sign({ user_id: user.user_id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({ token, user: { user_id: user.user_id, username: user.username, email: user.email } });
+    const newUserId = result.output.new_user_id;
+    const token = jwt.sign({ user_id: newUserId, username }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.status(201).json({ token, user: { user_id: newUserId, username, email } });
   } catch (err) {
     console.error(err);
+    if (err.message && (err.message.includes('already exists') || err.message.includes('already registered')))
+      return res.status(409).json({ message: err.message });
     res.status(500).json({ message: 'Server error.' });
   }
 });

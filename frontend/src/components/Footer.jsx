@@ -34,7 +34,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="border-t border-ps-border mt-8 pt-6 text-center text-xs text-ps-muted">
-          <p>© 2026 PopcornScore · FAST-NU CL219 Database Project · Group H1</p>
+          <p>© 2026 PopcornScore · FAST-NU CL2005 Database Project</p>
         </div>
       </div>
     </footer>

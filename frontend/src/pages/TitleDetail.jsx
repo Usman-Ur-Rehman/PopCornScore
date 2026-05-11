@@ -24,6 +24,7 @@ export default function TitleDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [reviewMsg, setReviewMsg] = useState('');
+  const [showTrailer, setShowTrailer] = useState(false);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -234,17 +235,15 @@ export default function TitleDetail() {
 
             {/* Trailer */}
             {title.trailer_url && (
-              <a
-                href={title.trailer_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-4 bg-ps-elevated border border-ps-border hover:border-ps-muted px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              <button
+                onClick={() => setShowTrailer(true)}
+                className="inline-flex items-center gap-2 mt-4 bg-ps-elevated border border-ps-border hover:border-ps-muted px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
               >
                 <svg className="w-4 h-4 text-ps-red" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
                 Watch Trailer
-              </a>
+              </button>
             )}
           </div>
         </div>
@@ -336,6 +335,42 @@ export default function TitleDetail() {
           </section>
         )}
       </div>
+
+      {/* Trailer Modal */}
+      {showTrailer && title.trailer_url && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={() => setShowTrailer(false)}>
+          <div className="relative w-full max-w-5xl aspect-video bg-black rounded-lg overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setShowTrailer(false)}
+              className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-red-600 rounded-full text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <iframe
+              src={(() => {
+                const url = title.trailer_url;
+                try {
+                  let videoId = '';
+                  if (url.includes('youtube.com/watch')) {
+                    videoId = new URL(url).searchParams.get('v');
+                  } else if (url.includes('youtu.be/')) {
+                    videoId = url.split('youtu.be/')[1].split('?')[0];
+                  }
+                  return videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1` : url;
+                } catch {
+                  return url;
+                }
+              })()}
+              title="Trailer"
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            ></iframe>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
